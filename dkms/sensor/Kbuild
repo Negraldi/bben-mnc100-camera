@@ -1,0 +1,3 @@
+obj-m := atomisp-ar0330.o
+# <linux/atomisp_gmin_platform.h> comes from the vendored atomisp tree (passed by dkms-build.sh).
+ccflags-y += -I$(ATOMISP_INC)

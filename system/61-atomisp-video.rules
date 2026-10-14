@@ -1,0 +1,2 @@
+# atomisp creates /dev/video0 as root:root 0600; hand it to the video group
+KERNEL=="video[0-9]*", SUBSYSTEM=="video4linux", DRIVERS=="atomisp-isp2", GROUP="video", MODE="0660"

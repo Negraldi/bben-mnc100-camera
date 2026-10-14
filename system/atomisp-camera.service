@@ -1,0 +1,11 @@
+[Unit]
+Description=Integrated camera (AR0330 on atomisp), loaded late with a crash guard
+After=multi-user.target ssh.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/atomisp-camera start
+ExecStop=/usr/local/sbin/atomisp-camera stop
+# A missing module build for a new kernel takes ~4 min on this Atom.
+TimeoutStartSec=30min

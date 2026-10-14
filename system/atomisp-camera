@@ -1,0 +1,71 @@
+#!/bin/bash
+# Load or unload the integrated camera (AR0330 on atomisp) from the DKMS package.
+#   atomisp-camera start | stop | status | enable
+# Started by atomisp-camera.timer 60 s after boot, once SSH is up.
+#
+# Crash guard: a marker is written (and synced) before the modules load and removed after.
+# If a boot finds the marker, the previous load never finished (kernel hang or panic), so
+# autoload disables itself until `atomisp-camera enable`. A headless mini PC may only be
+# recoverable with a keyboard and screen, so a bad load must never repeat on every boot.
+set -u
+PKG=atomisp-bben VER=1.0
+STATE=/var/lib/atomisp-camera
+K="$(uname -r)"
+log() { echo "atomisp-camera: $*"; }
+
+start() {
+  mkdir -p "$STATE"
+  if [ -e "$STATE/disabled" ]; then
+    log "autoload disabled: $(cat "$STATE/disabled")"
+    log "re-enable with: sudo atomisp-camera enable"
+    return 0
+  fi
+  if [ -e "$STATE/loading" ]; then
+    echo "a load started $(cat "$STATE/loading") never finished (crash or hang)" >"$STATE/disabled"
+    rm -f "$STATE/loading"; sync
+    log "previous load never finished; autoload disabled for safety"
+    return 0
+  fi
+  if lsmod | grep -q '^atomisp '; then
+    log "already loaded"; return 0
+  fi
+  if ! modinfo -k "$K" -F filename atomisp 2>/dev/null | grep -q /updates/dkms/; then
+    log "no camera modules for kernel $K yet; building them with DKMS (a few minutes)"
+    if ! dkms install -m "$PKG" -v "$VER" -k "$K"; then
+      log "build failed; log: /var/lib/dkms/$PKG/$VER/build/make.log"
+      return 1
+    fi
+  fi
+  date '+%F %T' >"$STATE/loading"; sync
+  modprobe -r intel_atomisp2_pm 2>/dev/null  # it holds the ISP in D3hot
+  # The sensor must register before atomisp probes.
+  modprobe atomisp_ar0330 && modprobe atomisp
+  rc=$?
+  rm -f "$STATE/loading"; sync
+  [ $rc -eq 0 ] && log "loaded" || log "modprobe failed ($rc)"
+  return $rc
+}
+
+stop() {
+  # atomisp never unregisters its v4l2_async notifier; unloading v4l2_async too clears the
+  # stale entry that otherwise corrupts the list on the next load in this boot.
+  for m in atomisp atomisp_ar0330 atomisp_gmin_platform ipu_bridge v4l2_fwnode v4l2_async; do
+    lsmod | awk '{print $1}' | grep -qx "$m" && { rmmod "$m" && log "unloaded $m"; }
+  done
+  return 0
+}
+
+status() {
+  lsmod | grep -E '^atomisp' || log "not loaded"
+  [ -e "$STATE/disabled" ] && log "autoload DISABLED: $(cat "$STATE/disabled")"
+  dkms status -m "$PKG" 2>/dev/null
+  return 0
+}
+
+case "${1:-}" in
+  start) start ;;
+  stop) stop ;;
+  status) status ;;
+  enable) rm -f "$STATE/disabled" "$STATE/loading"; sync; log "autoload enabled" ;;
+  *) echo "usage: $0 start|stop|status|enable" >&2; exit 2 ;;
+esac

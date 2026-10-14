@@ -1,0 +1,9 @@
+[Unit]
+Description=Load the integrated camera 60 s after boot
+
+[Timer]
+OnBootSec=60s
+Unit=atomisp-camera.service
+
+[Install]
+WantedBy=timers.target
